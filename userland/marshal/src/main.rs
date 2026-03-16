@@ -1,52 +1,42 @@
-/*
- * Stardust Userland Marshal (The Supervisor Process)
- * 
- * The Marshal is the first process executed by the kernel after the initial
- * boot sequence. Its primary responsibility is to transition the system from
- * a minimal kernel-provided environment into a fully functional userland.
- *
- * Architecture:
- * 1. Bootstrap: Initializes a local heap and basic runtime services.
- * 2. Initramfs Parsing: Extracts system drivers and services from the
- *    embedded initramfs (TAR format).
- * 3. Service Orchestration: Spawns essential drivers (PS/2 HID, GPU) into
- *    their own isolated address spaces.
- * 4. Runtime Environment: Sets up a WebAssembly (wasmi) execution stage
- *    to run high-level applications in a sandboxed, portable environment.
- * 5. Graphics/IPC Bridging: Provides the Wasm environment with access to
- *    system primitives like the framebuffer and IPC.
- */
-
 #![no_std]
 #![no_main]
 
 extern crate alloc;
 
 use core::panic::PanicInfo;
+use core::alloc::{GlobalAlloc, Layout};
 use linked_list_allocator::LockedHeap;
 use wasmi::{Engine, Module, Store, Linker};
 
-/*
- * Global Heap Allocator
- *
- * Uses a linked-list allocator for userland memory management.
- * The heap is backed by shared memory granted by the kernel via
- * sys_grant_shared_memory, effectively mapping physical frames
- * into the process's virtual address space at HEAP_START.
- */
+struct AlignedAllocator {
+    inner: LockedHeap,
+}
+
+unsafe impl GlobalAlloc for AlignedAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let align = core::cmp::max(layout.align(), 16);
+        let size = (layout.size() + align - 1) & !(align - 1);
+        if let Ok(aligned_layout) = Layout::from_size_align(size, align) {
+            unsafe { self.inner.alloc(aligned_layout) }
+        } else {
+            core::ptr::null_mut()
+        }
+    }
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        let align = core::cmp::max(layout.align(), 16);
+        let size = (layout.size() + align - 1) & !(align - 1);
+        if let Ok(aligned_layout) = Layout::from_size_align(size, align) {
+            unsafe { self.inner.dealloc(ptr, aligned_layout); }
+        }
+    }
+}
+
 #[global_allocator]
-static ALLOCATOR: LockedHeap = LockedHeap::empty();
+static ALLOCATOR: AlignedAllocator = AlignedAllocator { inner: LockedHeap::empty() };
 
 pub const HEAP_START: usize = 0x0000_4000_0000_0000;
-pub const HEAP_SIZE: usize = 16 * 1024 * 1024; // 16 MB Regional Heap
+pub const HEAP_SIZE: usize = 16 * 1024 * 1024; 
 
-/*
- * init_heap: Prepares the userland dynamic memory region.
- *
- * Iterates through the virtual address range and requests the kernel to 
- * map physical frames. This is a demand-paging alternative where the 
- * loader explicitly populates its memory map before usage.
- */
 pub fn init_heap() {
     let pages = HEAP_SIZE / 4096;
     for i in 0..pages {
@@ -55,16 +45,10 @@ pub fn init_heap() {
     }
     unsafe { 
         memset(HEAP_START as *mut u8, 0, HEAP_SIZE);
-        ALLOCATOR.lock().init(HEAP_START as *mut u8, HEAP_SIZE); 
+        ALLOCATOR.inner.lock().init(HEAP_START as *mut u8, HEAP_SIZE); 
     }
 }
 
-/*
- * trace_checkpoint: Diagnostic Output Mechanism
- *
- * Communicates progress or failure states to the kernel or hardware
- * debugger by executing a batched command with a specific magic ID.
- */
 fn trace_checkpoint(id: u64) {
     let cmd = [0x0000_DB60_0000_0000 | id];
     libstardust::sys_batch_execute(cmd.as_ptr(), 1);
@@ -76,25 +60,13 @@ fn panic(_info: &PanicInfo) -> ! {
     loop {} 
 }
 
-/*
- * Symbols defined by the linker script (linker.ld)
- * Used to zero-initialize the BSS section during bootstrap.
- */
 unsafe extern "C" {
     static mut __bss_start: u8;
     static mut __bss_end: u8;
 }
 
-/*
- * Embedded Initramfs
- * Contains the ELFs and assets required for the initial userland state.
- */
 static INITRAMFS_DATA: &[u8] = include_bytes!("initramfs.tar");
 
-/*
- * Global Graphics Context
- * Cached metadata for the kernel-provided framebuffer.
- */
 static mut FB_PTR: *mut u32 = core::ptr::null_mut();
 static mut FB_WIDTH: u64 = 0;
 static mut FB_HEIGHT: u64 = 0;
@@ -102,13 +74,6 @@ static mut FB_HEIGHT: u64 = 0;
 static mut WASM_DATA_PTR: *const u8 = core::ptr::null();
 static mut WASM_DATA_LEN: usize = 0;
 
-/*
- * _start: Userland Entry Point
- * 
- * Performs low-level runtime initialization, parses the initramfs,
- * and orchestrates the spawning of system drivers before pivoting 
- * to the WebAssembly execution stage.
- */
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() -> ! {
     unsafe {
@@ -120,36 +85,50 @@ pub extern "C" fn _start() -> ! {
     init_heap();
     let object_table = libstardust::tar::parse(INITRAMFS_DATA);
 
-    /*
-     * Driver Initialization Phase: PS/2 HID
-     */
+    // =========================================================================
+    // DYNAMIC INIT PROTOCOL (THE SYSTEMD OF STARDUST)
+    // Parses `init.rc` line-by-line. Dynamically offsets the memory layout
+    // for every Native Driver found, ensuring zero collisions forever.
+    // =========================================================================
+    let mut current_stack_base = 0x0000_6000_0000_0000;
+
     for object in &object_table {
-        if object.name == "ps2_hid" {
-            if let Some(entry_point) = libstardust::elf::load(object.data) {
-                let stack_base = 0x0000_6000_0000_0000;
-                for p in 0..16 { let _ = libstardust::sys_grant_shared_memory(0, stack_base + (p * 4096)); }
-                libstardust::sys_spawn_process(entry_point, stack_base + (16 * 4096));
-            }
-        }
-    }
-    
-    /*
-     * Driver Initialization Phase: GPU Driver
-     */
-    for object in &object_table {
-        if object.name == "gpu_driver" {
-            if let Some(entry_point) = libstardust::elf::load(object.data) {
-                let stack_base = 0x0000_6000_0010_0000; 
-                for p in 0..16 { let _ = libstardust::sys_grant_shared_memory(0, stack_base + (p * 4096)); }
-                libstardust::sys_spawn_process(entry_point, stack_base + (16 * 4096));
+        if object.name == "init.rc" {
+            if let Ok(config_str) = core::str::from_utf8(object.data) {
+                for line in config_str.lines() {
+                    let line = line.trim();
+                    if line.starts_with("driver:") {
+                        let driver_name = &line[7..];
+                        for drv_obj in &object_table {
+                            if drv_obj.name == driver_name {
+                                if let Some(entry_point) = libstardust::elf::load(drv_obj.data) {
+                                    let stack_base = current_stack_base;
+                                    for p in 0..16 { 
+                                        let _ = libstardust::sys_grant_shared_memory(0, stack_base + (p * 4096)); 
+                                    }
+                                    libstardust::sys_spawn_process(entry_point, stack_base + (16 * 4096));
+                                    
+                                    // Step 1MB forward in Virtual Space for the next driver
+                                    current_stack_base += 0x10_0000; 
+                                }
+                            }
+                        }
+                    } else if line.starts_with("app:") {
+                        let app_name = &line[4..];
+                        for app_obj in &object_table {
+                            if app_obj.name == app_name {
+                                unsafe {
+                                    WASM_DATA_PTR = app_obj.data.as_ptr();
+                                    WASM_DATA_LEN = app_obj.data.len();
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 
-    /*
-     * Graphics Subsystem Setup
-     * Maps the framebuffer provided by the kernel into the Marshal's address space.
-     */
     let _ = libstardust::sys_grant_shared_memory(0, 0x4000_0000);
     libstardust::sys_iommu_lockdown(0x10DE, 0xA000_0000);
     let fb_meta = libstardust::sys_map_framebuffer(0xB000_0000);
@@ -163,25 +142,8 @@ pub extern "C" fn _start() -> ! {
         }
     }
 
-    for object in &object_table {
-        if object.name == "test_app.wasm" {
-            unsafe {
-                WASM_DATA_PTR = object.data.as_ptr();
-                WASM_DATA_LEN = object.data.len();
-            }
-        }
-    }
-
-    /*
-     * Application Stack Pivot
-     * 
-     * The Wasm engine requires a significant amount of stack space. We allocate
-     * a large (16MB) region and perform an assembly pivot to ensure correct
-     * alignment (16-byte) for the SysV ABI before jumping into the execution stage.
-     */
-    trace_checkpoint(0x7500); 
     let deep_stack_base = 0x0000_6000_00F0_0000;
-    let deep_stack_size = 16 * 1024 * 1024;
+    let deep_stack_size = 16 * 1024 * 1024; 
     let pages = deep_stack_size / 4096;
     
     for p in 0..pages { 
@@ -203,12 +165,6 @@ pub extern "C" fn _start() -> ! {
     }
 }
 
-/*
- * wasm_execution_stage: WebAssembly Runtime Initialization
- * 
- * This stage initializes the 'wasmi' engine, sets up the sandbox,
- * and exports system primitives to the guest WebAssembly environment.
- */
 #[unsafe(no_mangle)]
 pub extern "C" fn wasm_execution_stage() -> ! {
     let wasm_data = unsafe { core::slice::from_raw_parts(WASM_DATA_PTR, WASM_DATA_LEN) };
@@ -221,11 +177,6 @@ pub extern "C" fn wasm_execution_stage() -> ! {
         let mut store = Store::new(&engine, ());
         let mut linker = <Linker<()>>::new(&engine);
         
-        /*
-         * Exported Host Function: draw_rect
-         * Allows the Wasm application to perform volatile writes to the 
-         * system framebuffer with boundary checking.
-         */
         let _ = linker.func_wrap("env", "draw_rect", |x: i32, y: i32, width: i32, height: i32, color: i32| {
             unsafe {
                 if FB_PTR.is_null() || x < 0 || y < 0 { return; }
@@ -242,10 +193,6 @@ pub extern "C" fn wasm_execution_stage() -> ! {
             }
         });
 
-        /*
-         * Exported Host Function: get_ipc_message
-         * Provides the Wasm application with access to the Stardust IPC mechanism.
-         */
         let _ = linker.func_wrap("env", "get_ipc_message", || -> i64 {
             let msg = libstardust::sys_ipc_receive(1);
             if msg == 0 { core::hint::spin_loop(); }
@@ -266,11 +213,6 @@ pub extern "C" fn wasm_execution_stage() -> ! {
     loop { core::hint::spin_loop(); }
 }
 
-/*
- * Low-level memory intrinsics.
- * These are implemented using volatile operations to ensure the compiler
- * does not optimize away required memory accesses in this environment.
- */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn memset(s: *mut u8, c: i32, n: usize) -> *mut u8 {
     let mut i = 0; while i < n { unsafe { core::ptr::write_volatile(s.add(i), c as u8); } i += 1; } s
