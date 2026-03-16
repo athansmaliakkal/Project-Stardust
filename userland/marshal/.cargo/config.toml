@@ -1,0 +1,17 @@
+[unstable]
+# Supervisor Runtime: Requires core, compiler_builtins, and alloc to support 
+# the 'wasmi' interpreter and its dynamic memory requirements.
+build-std = ["core", "compiler_builtins", "alloc"]
+
+[build]
+# Target: Bare-metal x86_64 execution.
+target = "x86_64-unknown-none"
+
+[target.x86_64-unknown-none]
+rustflags = [
+    # Custom Linker: Maps the supervisor into the supervisor-level virtual memory space.
+    "-C", "link-arg=-Tlinker.ld",
+    
+    # Static Model: Ensures the supervisor is fully self-sufficient.
+    "-C", "relocation-model=static"
+]

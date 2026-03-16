@@ -1,0 +1,25 @@
+[package]
+name = "stardust-kernel"
+version = "0.0.1"
+edition = "2024"
+authors = ["Athan S Maliakkal"]
+description = "Ring 0 Bare-metal microkernel"
+
+# Architectural Choice: No Standard Library
+# As a microkernel, we must provide our own runtime. 'no_std' is implied by the target, 
+# but dependencies must be carefully chosen to support this environment.
+
+[dependencies]
+# Bootloader interface: Provides the bridge between firmware (UEFI) and our kernel.
+limine = "0.5.0"
+
+# CPU Abstraction: Provides safe wrappers for x86_64 specific instructions, 
+# registers, and page table management.
+x86_64 = "0.14.11"
+
+# Synchronization Primitives: Used for global state that requires initialization at runtime.
+# 'spin_no_std' is essential as we lack OS-level mutexes and thread local storage.
+lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
+
+# Spinlocks: Required for multi-core synchronization before the scheduler is fully operational.
+spin = "0.9.8"

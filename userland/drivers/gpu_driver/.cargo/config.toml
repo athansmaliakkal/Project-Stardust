@@ -1,0 +1,17 @@
+[unstable]
+# Driver Build Requirements: Rebuilding the standard library components to 
+# support dynamic allocation and low-level operations.
+build-std = ["core", "compiler_builtins", "alloc"]
+
+[build]
+# Target: Consistent with the Stardust ecosystem for bare-metal execution.
+target = "x86_64-unknown-none"
+
+[target.x86_64-unknown-none]
+rustflags = [
+    # Linker Configuration: Ensures the GPU driver is correctly aligned in memory.
+    "-C", "link-arg=-Tlinker.ld",
+    
+    # Static Linking: Guarantees independence from external dynamic libraries.
+    "-C", "relocation-model=static"
+]

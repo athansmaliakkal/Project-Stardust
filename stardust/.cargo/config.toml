@@ -1,0 +1,23 @@
+[unstable]
+# Standard Library Rebuild: We must rebuild the core and compiler_builtins crates 
+# for our custom 'x86_64-unknown-none' target to ensure they are compatible with 
+# our bare-metal environment.
+build-std = ["core", "compiler_builtins"]
+
+# Memory Intrinsics: Provides basic memory functions (memcpy, memset, etc.) 
+# which are required for many core operations.
+build-std-features = ["compiler-builtins-mem"]
+
+[build]
+# Bare-metal target: No OS assumptions, no standard library, static linking.
+target = "x86_64-unknown-none"
+
+[target.x86_64-unknown-none]
+rustflags = [
+    # Custom Linker Script: Defines the precise memory layout (VMA/LMA) required by the bootloader.
+    "-C", "link-arg=-Tlinker.ld",
+    
+    # Static Relocation: Simplifies the boot process by ensuring all addresses are resolved 
+    # at compile-time, as the kernel does not have a dynamic loader.
+    "-C", "relocation-model=static"
+]

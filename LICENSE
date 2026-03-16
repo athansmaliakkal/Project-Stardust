@@ -1,0 +1,22 @@
+# Stardust OS Personal Use License (SOPL)
+Version 1.0, March 2026
+
+Copyright (c) 2026. All rights reserved.
+
+## 1. PERMITTED USE
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to use, study, and modify the Software for personal, non-commercial, and educational purposes only.
+
+## 2. COMMERCIAL RESTRICTIONS
+The Software may NOT be used, redistributed, or sublicensed for any commercial, business, or for-profit purposes. This includes, but is not limited to:
+- Using the Software as a base for a commercial product.
+- Using the Software within a corporate or business environment.
+- Selling the Software or any derivative works.
+
+## 3. ATTRIBUTION & BRANDING
+As a condition of the permitted use under this License:
+- All copies or substantial portions of the Software must retain the original copyright notice and this permission notice.
+- Proper credit and attribution must be given to the original author in all derivative works or presentations of the Software.
+- The name "Stardust OS" is a protected identifier. You may NOT rename the Software or any derivative works based significantly on this source code. The branding "Stardust OS" must remain intact in all boot headers, UI elements, and documentation.
+
+## 4. NO WARRANTY
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

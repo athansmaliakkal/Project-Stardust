@@ -1,0 +1,20 @@
+[package]
+name = "ps2_hid"
+version = "0.1.0"
+edition = "2024"
+
+# Architectural Role: PS/2 Human Interface Device Driver
+# This driver operates in user-mode (Ring 3) to enhance system stability 
+# by isolating driver failures from the kernel.
+
+[dependencies]
+# Standard Interface: Provides the necessary syscalls to interact with the kernel.
+libstardust = { path = "../../libs/libstardust" }
+
+# Local Heap: Allows the driver to allocate memory for internal state management.
+linked_list_allocator = "0.10.5"
+
+[profile.release]
+# Safety & Size: Aborting on panic ensures predictable behavior in a driver 
+# context and keeps the executable size minimal.
+panic = "abort"

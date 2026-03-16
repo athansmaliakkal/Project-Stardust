@@ -1,0 +1,14 @@
+[package]
+name = "gpu_driver"
+version = "0.1.0"
+edition = "2024"
+
+# Architectural Role: Graphics Processing Driver
+# Manages display output by interacting with the kernel's hardware abstractions.
+
+[dependencies]
+# Local Heap: Essential for managing framebuffers or driver-specific structures.
+linked_list_allocator = "0.10.5"
+
+# Kernel Bridge: Provides the syscall interface for I/O and memory mapping.
+libstardust = { path = "../../libs/libstardust" }

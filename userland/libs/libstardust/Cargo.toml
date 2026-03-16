@@ -1,0 +1,16 @@
+[package]
+name = "libstardust"
+version = "0.1.0"
+edition = "2024"
+
+# Architectural Role: Userland Core Library
+# This crate serves as the foundation for all userland processes and drivers, 
+# providing syscall wrappers and core memory management.
+
+[dependencies]
+# Heap Management: Used by processes and drivers to manage their own local memory pools.
+linked_list_allocator = "0.10.5"
+
+# Synchronization: Provides lightweight spinlocks for userland synchronization 
+# in the absence of more complex kernel-managed primitives.
+spin = "0.9.8"

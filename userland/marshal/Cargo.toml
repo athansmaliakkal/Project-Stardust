@@ -1,0 +1,19 @@
+[package]
+name = "stardust-marshal"
+version = "0.0.1"
+edition = "2024"
+
+# Architectural Role: WebAssembly Supervisor (The Marshal)
+# This component is responsible for orchestrating the execution of userland 
+# processes by providing a sandboxed WebAssembly environment.
+
+[dependencies]
+# System Interface: Used for communication with the microkernel.
+libstardust = { path = "../libs/libstardust" }
+
+# Component Allocation: Manages memory for the WASM interpreter and process state.
+linked_list_allocator = "0.10.5"
+
+# WASM Interpreter: A pure-Rust, no_std compatible interpreter that executes 
+# userland application logic within a safe boundary.
+wasmi = { version = "0.31.0", default-features = false }

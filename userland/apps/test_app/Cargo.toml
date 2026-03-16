@@ -1,0 +1,17 @@
+[package]
+name = "test_app"
+version = "0.1.0"
+edition = "2024"
+
+# Architectural Role: Example Userland Application
+# A basic process used to verify the syscall interface and scheduler.
+
+[lib]
+# WebAssembly Compatibility: Compiling as a 'cdylib' allows the binary to be 
+# loaded and executed by the Stardust WebAssembly supervisor (Marshal).
+crate-type = ["cdylib"]
+
+[profile.release]
+# Minimal Footprint: Disabling stack unwinding reduces binary size and 
+# simplifies the runtime requirements for userland apps.
+panic = "abort"
